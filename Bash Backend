@@ -1,0 +1,104 @@
+#!/bin/bash
+
+############################################-,
+## Variable definition appendix             ##
+############################################-'
+## $1 = domain name,  user defined          ##
+##                                          ##
+## $2 = is defined by the html form.        ##
+## $2 can be 0-3, whereby:                  ##
+##                                          ##
+##  $2(0) = Quick Check                     ##
+##  $2(1) = Extended Check                  ##
+##  $2(2) =  Recursion workaround QC        ##
+##  $2(3) = Recursion workaround EC         ##
+############################################-'
+
+############################################-,
+## Runs in every instance                   ##
+############################################-'
+
+
+# Takes first variable inport (i.e. domain name) from PHP.
+# Then CLEANS it up, i.e. anything before :// and anything after (also including) trailing slash.
+# For example, if the user enters: https://google.com/index.php
+# The https:// will be removed & /index.php will be removed.
+# This is to prevent issues with dig commands and whois commands.
+
+# The result is stored inside of a text file, called "dn.txt"
+# This is rudimentary, and I'm considering moving this to environmental variables, with separate bash instances
+# in aid of *potential* concurrency issues
+
+echo $1 | cut -d/ -f1 --complement | cut -d/ -f3 --complement | sed 's/\///g' > dn.txt
+
+# Reads the CLEAN domain name into a variable
+dn=$(<dn.txt)
+
+# Section A runs a whois check on the domain, then deletes everything after line 25. This is a tested 'magic number'
+# which can and will be replaced with a sed command, removing everything after >> as opposed to after 25.
+# For now, this works.
+
+echo "________________________________________________________" > domaincheck/test/log/$dn.html
+echo "A) -  Who-is" >> domaincheck/test/log/$dn.html
+echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+whois $dn | sed '25,$ d' >> domaincheck/test/log/$dn.html
+
+# Section B runs based on parameters outlined in the Appendix at the start of the script.
+
+echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+echo "B) -  NS Lookup" >> domaincheck/test/log/$dn.html
+echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+
+# 2 & 3 Call the recursion work around script. Check testdc.sh for further documentation
+# 0 & 1 both use a recursive dig command, requesting ALL records.
+
+if [ $2 = 2 ] || [ $2 = 3 ]; then
+  domaincheck/test/testdc.sh $dn >> domaincheck/test/log/$dn.html
+elif [[ $2 = 0 ]] || [[ $2 = 1 ]]; then
+   host -a $dn >> domaincheck/test/log/$dn.html
+fi
+
+##########################################################################-,
+## Code for the extended checks, ran only when option 1 or 3 is selected. ##
+##########################################################################-'
+
+
+echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+
+# 1 & 3 Both call the extended checks. The extended checks ping a domain name for IPv4 & IPv6 exactly 3 times
+# A complicated curl command ascertains the site load times for different elements of the site.
+
+if [[ $2 = 1 ]] || [ $2 = 3 ]; then
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  host -C $dn >> domaincheck/test/log/$dn.html
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  echo "D) -  IPv6 Ping" >> domaincheck/test/log/$dn.html
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  ping -6 -c 3 $dn >> domaincheck/test/log/$dn.html &&
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  echo "E) -  IPv4 Ping" >> domaincheck/test/log/$dn.html
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  ping -c 3 $dn >> domaincheck/test/log/$dn.html &&
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  echo "F) -  Site load diagnostics" >> domaincheck/test/log/$dn.html
+  echo "________________________________________________________" >> domaincheck/test/log/$dn.html
+  curl -L -s -w '\nLookup time:\t%{time_namelookup}\nConnect time:\t%{time_connect}\nAppCon time:\t%{time_appconnect}\nRedirect time:\t%{time_redirect}\nPreXfer time:\t%{time_pretransfer}\nStartXfer time:\t%{time_starttransfer}\n\nTotal time:\t%{time_total}\n' -o /dev/null $1 >> domaincheck/test/log/$dn.html
+  echo "________________________________________________________" >> /var/www/vhosts/farnworth.site/html/domaincheck/test/log/$dn.html
+
+fi
+
+# This script gets the IP addresses of the web and email servers, then ripes them and spits em out.
+
+echo "C) - IP Ownership" >> /var/www/vhosts/farnworth.site/html/domaincheck/test/log/$dn.html
+echo "________________________________________________________" >> /var/www/vhosts/farnworth.site/html/domaincheck/test/log/$dn.html
+
+./whois-element-test2  >> /var/www/vhosts/farnworth.site/html/domaincheck/test/log/$dn.html
+
+# Used to actually display the results in HTML
+cat /var/www/vhosts/farnworth.site/html/domaincheck/test/log/$dn.html
+
+# Deletes the temp file.
+rm $dn.txt
+
+# Adds a date and time to the final HTML
+date '+%d/%m/%Y %H:%M:%S' >> /var/www/vhosts/farnworth.site/html/domaincheck/test/log/$dn.html
